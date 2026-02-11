@@ -68,12 +68,10 @@ void* producteur(void* arg){
 
     for(int i = 0; i<p->cible;i++){
         char tmp[100];
-        snprintf(tmp,sizeof(tmp), "%s %d" ,p->nom_produit, i);
+        snprintf(tmp,sizeof(tmp), "%s %d" ,p->nom_produit, i);//bonne espace
 
         paquet pa;
-        pa.s = strdup(tmp);// une nouvelle chaîne sur le tas
-        
-
+        pa.s = strdup(tmp);// une nouvelle chaîne sur le tas,eviter de reecrire pas d'autres personnes.
         enfiler(p->tapis, pa);
     }
     return NULL;
@@ -84,14 +82,13 @@ typedef struct {
     int id;
     tapis *tapis;
     compteur *cpt; 
-
 }consommateur_arg;
 
 void* consommateur(void* arg){
     consommateur_arg *a = (consommateur_arg*) arg;
 
     while (1) {
-        //on utilise pas atomic ici parceque 
+        //on utilise pas atomic ici parceque on devais comparer la valeur mais pas operer.
         pthread_mutex_lock(&a->cpt->mutex);// on ajout mutex sur la valeur de compteur,donc tous les threads voir 0 a la fin et termine correctement
         if (a->cpt->valeur <= 0) { // on consome tous
             pthread_mutex_unlock(&a->cpt->mutex);
