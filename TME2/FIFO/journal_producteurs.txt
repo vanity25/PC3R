@@ -1,0 +1,5 @@
+orange 0
+pomme 0
+orange 1
+pomme 1
+orange 2

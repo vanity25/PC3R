@@ -1,7 +1,8 @@
 #include <fthread.h>
 #include <stdio.h>
 #include <stdlib.h>   
-#include <string.h>   
+#include <string.h> 
+#include <unistd.h>  
 
 
 
@@ -95,19 +96,18 @@ typedef struct args_producteur {
 
 void producteur(void * args){
     args_producteur* args_p = (args_producteur*) args;
-    char *nom_produit = args_p->nom_produit;
     int cible = args_p->cible;
     tapis *tapis_prod = args_p->tapis_prod;
 
     for(int i = 0; i<cible;i++){
         paquet *p = malloc(sizeof(paquet));
-        p->contenu = malloc(strlen(nom_produit) +1);
-
+        p->contenu = malloc(100);
+        sprintf(p->contenu,"%s %d",args_p->nom_produit, i);
         
         tapis_enfiler(tapis_prod, p);//les paquets sont attache a meme tapis donc meme ordonnanceur
         
         //ecrire dans le fichier du journal producteur
-        fprintf(args_p->f_prod,"%s + %d\n",args_p->nom_produit,i);
+        fprintf(args_p->f_prod,"%s\n", p->contenu);
 
         fflush(args_p->f_prod);
 
@@ -119,23 +119,31 @@ void producteur(void * args){
 /*
 partie consommateur
 */
+typedef struct {
+    int valeur;   
+} compteur;
 
 typedef struct {
     char *nom_consommateur;
     int cible;               
     tapis *tapis_cons;       
-    FILE *f_cons;            
+    FILE *f_cons;
+    compteur *cpt;            
 } args_consommateur;
 
 void consommateur(void *args){
     args_consommateur *args_c = (args_consommateur*) args;
     tapis *tapis_cons = args_c->tapis_cons;
-    int cible = args_c->cible;
 
-    for(int i = 0; i < cible; i++){
+    while(1){
+        if (args_c->cpt->valeur <= 0){break;}
         paquet *p = tapis_defiler(tapis_cons);
-        fprintf(args_c->f_cons,"%s + %d\n",args_c->nom_consommateur,i);
+        int i=0;
+        fprintf(args_c->f_cons,"%s+%s+%d\n",args_c->nom_consommateur,p->contenu,i);
         fflush(args_c->f_cons);
+        args_c->cpt->valeur--;
+        free(p->contenu);
+        free(p);
         ft_thread_cooperate();
     }
 }
@@ -144,9 +152,6 @@ void consommateur(void *args){
 partie messagers
 */
 
-typedef struct {
-    int valeur;   
-} compteur;
 
 
 
@@ -164,8 +169,14 @@ void messager(void *args)
     args_messager *m = (args_messager*) args;
     paquet *p = NULL;
 
-    while (m->cpt->valeur > 0) {
+    while (1) {
         ft_thread_link(m->sched_prod);
+
+        if (tapis_est_vide(m->tapis_prod) && m->cpt->valeur <= 0) {
+        ft_thread_unlink();
+        break;
+        }//condition
+
         p = tapis_defiler(m->tapis_prod);
         ft_thread_unlink();
 
@@ -190,41 +201,63 @@ void messager(void *args)
 
 int main(void) {
 
-    /* 1️⃣ 创建调度器 */
-    ft_scheduler_t sched = ft_scheduler_create();
+    ft_scheduler_t sched_prod = ft_scheduler_create();
+    ft_scheduler_t sched_cons = ft_scheduler_create();
+    //creation des deux ordonnanceurs
 
-    /* 2️⃣ 创建共享的 tapis */
-    tapis *t = tapis_create(5, sched);  // 容量 5
+    tapis *t1 = tapis_create(5, sched_prod);
+    tapis *t2 = tapis_create(5, sched_cons);
+    //creation des deux tapis de capacite 5
 
-    /* 3️⃣ 打开日志文件 */
-    FILE *f = fopen("journal_producteur.txt", "w");
-    if (!f) {
-        perror("fopen");
-        exit(EXIT_FAILURE);
+    int nb_prod=2;//2 producteurs
+    int nb_paquets=8;//8 paquets pour chaque producteur
+    compteur *c=malloc(sizeof(compteur));
+    c->valeur=nb_prod*nb_paquets;//initialisation de compteur
+    
+
+    FILE *f_prod = fopen("journal_producteurs.txt", "w");
+    FILE *f_cons = fopen("journal_consommateurs.txt", "w");
+    FILE *f_msg  = fopen("journal_messagers.txt", "w");
+
+    //creation des producteurs
+    char* nom_prod[]={"orange","pomme"};
+    for(int i=0;i<nb_prod;i++){
+        args_producteur* pros=malloc(sizeof(args_producteur));
+        pros->nom_produit=nom_prod[i];
+        pros->cible=nb_paquets;
+        pros->tapis_prod=t1;
+        pros->f_prod=f_prod;
+        ft_thread_create(sched_prod, producteur, NULL, pros);
     }
 
-    /* 4️⃣ 创建 producteur 参数 */
-    args_producteur *args = malloc(sizeof(args_producteur));
-    args->nom_produit = "X";
-    args->cible = 10;         // 生产 10 个
-    args->tapis_prod = t;
-    args->f_prod = f;
+    //creation des consommateurs
+    char* nom_consom[]={"A","B"};
+    for (int i=0;i<nb_prod;i++){
+        args_consommateur* cons=malloc(sizeof(args_consommateur));
+        cons->nom_consommateur=nom_consom[i];
+        cons->tapis_cons=t2;
+        cons->cible=(nb_prod*nb_paquets)%2==0?nb_prod*nb_paquets/2:(nb_prod*nb_paquets+1)/2;
+        cons->f_cons=f_cons;
+        cons->cpt=c;
+        ft_thread_create(sched_cons, consommateur, NULL, cons);
+    }
 
-    /* 5️⃣ 创建线程 */
-    ft_thread_t th_prod =
-        ft_thread_create(sched, producteur, NULL, args);
+    //creation des messagers
+    for (int i=0;i<nb_prod;i++){
+        args_messager* mes=malloc(sizeof(args_messager));
+        mes->sched_cons=sched_cons;
+        mes->sched_prod=sched_prod;
+        mes->tapis_prod=t1;
+        mes->tapis_cons=t2;
+        mes->f_message=f_msg;
+        mes->cpt=c;
+        ft_thread_create(NULL, messager, NULL, mes);
+    }
 
-    /* 6️⃣ 启动调度器 */
-    ft_scheduler_start(sched);
+    ft_scheduler_start(sched_prod);
+    ft_scheduler_start(sched_cons);
 
-    /* 7️⃣ 等待线程结束 */
-    ft_thread_join(th_prod);
-
-    /* 8️⃣ 清理 */
-    fclose(f);
-ft_scheduler_stop((ft_thread_t) sched);
-
-
+    ft_exit();
     return 0;
 }
 
