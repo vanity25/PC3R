@@ -3,3 +3,5 @@ pomme 0
 orange 1
 pomme 1
 orange 2
+pomme 2
+orange 3

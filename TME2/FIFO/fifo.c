@@ -170,12 +170,15 @@ void messager(void *args)
     paquet *p = NULL;
 
     while (1) {
-        ft_thread_link(m->sched_prod);
-
-        if (tapis_est_vide(m->tapis_prod) && m->cpt->valeur <= 0) {
+        //ajouter dans la pthread un partie de instant, ensuite apres un instant il 
+        //execute messager
+        // ft_thread_link(m->sched_prod);
+        // compteur valeur doit etre atomic??? on regard valeur dans la pthread prod mais il est
+        //modifie dans pthread con(data race?)
+        if ( m->cpt->valeur <= 0) {
         ft_thread_unlink();
         break;
-        }//condition
+        }// 
 
         p = tapis_defiler(m->tapis_prod);
         ft_thread_unlink();
@@ -191,14 +194,15 @@ void messager(void *args)
         fflush(m->f_message);
         p = NULL;
 
-        ft_thread_cooperate();
+        ft_thread_link(m->sched_prod);
     }
 }
 
 
 
 
-
+// quand on execute le main, il bloque. Seulement il a ecrit 5 lignes dans la journal_producteurs.
+//on suppose que quand notre tapis est plein, il bloque, parceque 5 est la taille max de tapis.
 int main(void) {
 
     ft_scheduler_t sched_prod = ft_scheduler_create();
@@ -251,7 +255,7 @@ int main(void) {
         mes->tapis_cons=t2;
         mes->f_message=f_msg;
         mes->cpt=c;
-        ft_thread_create(NULL, messager, NULL, mes);
+        ft_thread_create(sched_prod, messager, NULL, mes);
     }
 
     ft_scheduler_start(sched_prod);
