@@ -1,15 +1,44 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"log"
+	"os"
 	"strings"
 	"time"
 )
 
-func lecteur(f string, out chan string) {
-	lines := strings.Split(f, "\n") //split ressource par ligne
-	for _, line := range lines[1:] {
-		out <- line
+func lecteur(titre string, out chan string) {
+	/*
+		lines := strings.Split(f, "\n") //split ressource par ligne
+		for _, line := range lines[1:] {
+			out <- line
+		}
+	*/
+	fichier, err := os.Open(titre)
+	if err != nil {
+		fmt.Printf("Error opening file: %v\n", err)
+		close(out)
+		return
+	}
+
+	scanner := bufio.NewScanner(fichier)
+	continu := true
+	_ = scanner.Scan()
+
+	for continu {
+		resultat := scanner.Scan()
+		if resultat == false {
+			err = scanner.Err()
+			if err == nil {
+				continu = false
+			} else {
+				log.Fatal(err)
+			}
+		} else {
+			out <- scanner.Text()
+		}
 	}
 }
 
@@ -41,8 +70,8 @@ func serveur(url chan calcul_cont) {
 	for {
 		contenu := <-url
 		go func(cont calcul_cont) {
-			adate, _ := time.Parse("", cont.p.arrive) //a completer
-			ddate, _ := time.Parse("", cont.p.depart) //a completer
+			adate, _ := time.Parse("15:04:03", cont.p.arrive)
+			ddate, _ := time.Parse("15:04:03", cont.p.depart)
 			time.Sleep(10 * time.Millisecond)
 			duree := int(ddate.Sub(adate).Seconds())
 			new_p := paquet{arrive: cont.p.arrive, depart: cont.p.depart, arret: duree}
@@ -72,30 +101,29 @@ func reducteur(in chan int, stop chan bool, moyenne chan float64) {
 }
 
 func main() {
-	ch_in := make(chan string)           //lecteur des donnees
-	ch_tra_ser := make(chan calcul_cont) //travailleurs a serveur
-	ch_tra_red := make(chan int)         //travailleurs a reducteur
-	stop := make(chan bool)
-	resultat := make(chan float64)
 
-	go serveur(ch_tra_ser)
+	ch_lines := make(chan string)
+	ch_serv := make(chan calcul_cont)
+	ch_red := make(chan int)
+	ch_stop := make(chan bool)
+	ch_moy := make(chan float64)
 
-	go reducteur(ch_tra_red, stop, resultat)
+	go lecteur("stop_times.txt", ch_lines)
 
-	numtravailleurs := 2 //nombre des travailleurs
-	for i := 0; i < numtravailleurs; i++ {
-		//i=id des travailleurs
-		go travailleur(ch_in, ch_tra_ser, ch_tra_red, i)
+	go serveur(ch_serv)
+
+	go reducteur(ch_red, ch_stop, ch_moy)
+
+	nbTravailleurs := 4
+	for i := 0; i < nbTravailleurs; i++ {
+		go travailleur(ch_lines, ch_serv, ch_red, i)
 	}
 
-	go lecteur("", ch_in)
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 
-	fmt.Println("************************")
-	fmt.Println("Fin")
-	fmt.Println("************************")
+	ch_stop <- true
 
-	stop <- true
-	moyenne := <-resultat
-	fmt.Printf("Moyen arret: %.2f secondes\n", moyenne)
+	moyenne := <-ch_moy
+
+	fmt.Println("Moyenne des durées :", moyenne)
 }
