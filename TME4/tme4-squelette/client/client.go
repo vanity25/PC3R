@@ -81,21 +81,23 @@ func (p *personne_emp) initialise() {
 }
 
 func (p *personne_emp) travaille() {
-	ret := make(chan string)
-
+	p.Personne = p.afaire[0](p.Personne)
 	p.afaire = p.afaire[1:]
-	Personne = p.afaire(personne)
-	p.statut = "C"
+	if len(p.afaire) == 0 {
+		p.statut = "C"
+	}
 	// A FAIRE
 }
 
 func (p *personne_emp) vers_string() string {
+	return fmt.Sprintf("%s,%s,%s,%s,%s", p.statut, p.Nom, p.Prenom, p.Sexe, p.ligne)
 	//print les log
 	// A FAIRE
 }
 
 func (p *personne_emp) donne_statut() string {
 	// A FAIRE
+	return p.statut
 }
 
 // *** METHODES DE L'INTERFACE personne_int POUR LES PAQUETS DE PERSONNES DISTANTES (PARTIE 2) ***
@@ -134,14 +136,37 @@ func lecteur() {
 // Si le statut est V, ils initialise le paquet de personne puis le repasse aux gestionnaires
 // Si le statut est R, ils travaille une fois sur le paquet puis le repasse aux gestionnaires
 // Si le statut est C, ils passent le paquet au collecteur
-func ouvrier() {
+func ouvrier(traiter chan personne_int, enfiler chan personne_int, collecter chan personne_int) {
 	// A FAIRE
+	for {
+		p := <-traiter
+		switch p.donne_statut() {
+		case "V":
+			p.initialise()
+			enfiler <- p
+		case "R":
+			p.travaille()
+			enfiler <- p
+		case "C":
+			collecter <- p
+		}
+	}
 }
 
 // Partie 1: les producteurs cree des personne_int implementees par des personne_emp initialement vides,
 // de statut V mais contenant un numéro de ligne (pour etre initialisee depuis le fichier texte)
 // la personne est passée aux gestionnaires
-func producteur() {
+func producteur(out chan personne_int, lecteur chan message_lec) {
+	for i := 0; ; i++ {
+		p := &personne_emp{
+			ligne:   i,
+			statut:  "V",
+			afaire:  make([]func(st.Personne) st.Personne, 0),
+			lecteur: lecteur,
+		}
+		out <- p
+	}
+
 	// A FAIRE
 }
 
@@ -156,14 +181,56 @@ func producteur_distant() {
 // ils les passent aux ouvriers quand ils sont disponibles
 // ATTENTION: la famine des ouvriers doit être évitée: si les producteurs inondent les gestionnaires de paquets, les ouvrier ne pourront
 // plus rendre les paquets surlesquels ils travaillent pour en prendre des autres
-func gestionnaire() {
+func gestionnaire(enfiler_prod chan personne_int, enfiler_ouv chan personne_int, defiler chan personne_int, cap int) {
 	// A FAIRE
+	tableau := make([]personne_int, 0, cap)
+	for {
+		switch len(tableau) {
+		case 0:
+			select {
+			case p := <-enfiler_ouv:
+				tableau = append(tableau, p)
+			case p := <-enfiler_prod:
+				tableau = append(tableau, p)
+			}
+		case cap - 1:
+			//Ici, on fixe la règle suivante : lorsqu’il ne reste qu’une seule place libre, on n’accepte que les retours des ouvriers ou bien on libère un élément.
+			//Ainsi, lorsque le prochain paquet arrive — qu’il provienne d’un ouvrier  ou d’un producteur, il y aura toujours un ouvrier disponible pour le prendre en charge, ce qui permet d’éviter toute situation de blocage (deadlock).
+			select {
+			case p := <-enfiler_ouv:
+				tableau = append(tableau, p)
+			case defiler <- tableau[0]:
+				tableau = tableau[1:]
+			}
+		default:
+			select {
+			case p := <-enfiler_ouv:
+				tableau = append(tableau, p)
+			case p := <-enfiler_prod:
+				tableau = append(tableau, p)
+			case defiler <- tableau[0]:
+				tableau = tableau[1:]
+			}
+		}
+	}
+
 }
 
 // Partie 1: le collecteur recoit des personne_int dont le statut est c, il les collecte dans un journal
 // quand il recoit un signal de fin du temps, il imprime son journal.
-func collecteur() {
+func collecteur(in <-chan personne_int, fin <-chan int) {
 	// A FAIRE
+	journal := ""
+	for {
+		select {
+		case p := <-in:
+			journal += p.vers_string() + "\n"
+		case p := <-fin:
+			p = p + 1
+			fmt.Print(journal)
+			return
+		}
+	}
 }
 
 func main() {
