@@ -9,6 +9,10 @@ import (
 	"time"
 )
 
+/*
+Cette fonction reçoit le nom d’un fichier, l’ouvre et le lit, puis transmet
+son contenu ligne par ligne au travailleur via le chan out
+*/
 func lecteur(titre string, out chan string) {
 	/*
 		lines := strings.Split(f, "\n") //split ressource par ligne
@@ -24,8 +28,8 @@ func lecteur(titre string, out chan string) {
 	}
 
 	scanner := bufio.NewScanner(fichier)
-	continu := true
-	_ = scanner.Scan()
+	continu := true    //definie et affectation
+	_ = scanner.Scan() //abandonner la premier ligne
 
 	for continu {
 		resultat := scanner.Scan()
@@ -53,11 +57,17 @@ type calcul_cont struct {
 	c chan paquet
 }
 
+/*
+Cette fonction encapsule les données dans un paquet,
+crée pour chaque paquet un canal privé, l’envoie au serveur,
+attend que le serveur termine le traitement
+, puis transmet le résultat à channel ch_red pour le reducteur
+*/
 func travailleur(in1 chan string, ch_serv chan calcul_cont, ch_red chan int, id int) {
 	for ressource := range in1 {
 		fmt.Println("travailleur", id, "a recu une ligne de donnee")
 		partie := strings.Split(ressource, ",")
-		local := make(chan paquet)
+		local := make(chan paquet)                                  //private channel
 		p := paquet{arrive: partie[1], depart: partie[2], arret: 0} //construire paquet
 		req := calcul_cont{p: p, c: local}
 		ch_serv <- req //envoyer a serveur
@@ -66,6 +76,9 @@ func travailleur(in1 chan string, ch_serv chan calcul_cont, ch_red chan int, id 
 	}
 }
 
+/*
+Calculer les durees.
+*/
 func serveur(url chan calcul_cont) {
 	for {
 		contenu := <-url
@@ -80,11 +93,17 @@ func serveur(url chan calcul_cont) {
 	}
 }
 
+/*
+Avant que main n’envoie le message stop,
+cette fonction reçoit en continu des valeurs de durée.
+Lorsque le signal stop arrive,
+elle cesse de recevoir des messages et commence à calculer la moyenne.
+*/
 func reducteur(in chan int, stop chan bool, moyenne chan float64) {
 	sum := 0
 	count := 0
 	for {
-		select {
+		select { //Permet d’écouter simultanément deux canaux.
 		case val := <-in:
 			fmt.Println("Ajoute ", val)
 			sum += val
@@ -101,7 +120,7 @@ func reducteur(in chan int, stop chan bool, moyenne chan float64) {
 }
 
 func main() {
-
+	//Un canal sans tampon est utilisé pour assurer la synchronisation.
 	ch_lines := make(chan string)
 	ch_serv := make(chan calcul_cont)
 	ch_red := make(chan int)
